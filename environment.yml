@@ -83,4 +83,5 @@ dependencies:
   - mlxtend==0.4.1
   - patsy==0.4.1
   - statsmodels==0.6.1
+  - wordcloud==1.2.1
 
