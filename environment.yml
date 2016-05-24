@@ -75,13 +75,16 @@ dependencies:
   - backports.shutil-get-terminal-size==1.0.0
   - backports.ssl-match-hostname==3.4.0.2
   - brewer2mpl==1.4.1
+  - django==1.9.6
   - ggplot==0.6.8
+  - image==1.5.3
   - ipython-genutils==0.1.0
   - jupyter-client==4.2.2
   - jupyter-console==4.1.1
   - jupyter-core==4.1.0
   - mlxtend==0.4.1
   - patsy==0.4.1
+  - pillow==3.2.0
   - statsmodels==0.6.1
   - wordcloud==1.2.1
 
