@@ -8,7 +8,8 @@
 
 ## Scratchwork
 
-[`1-exploring.ipynb`](https://github.com/jakesherman/shelter-animals-kaggle/blob/master/1-exploring.ipynb) - Exploratory analysis
+* [`1-exploring.ipynb`](https://github.com/jakesherman/shelter-animals-kaggle/blob/master/1-exploring.ipynb) - Exploratory analysis  
+* [`2-dog-breeds.ipynb`](https://github.com/jakesherman/shelter-animals-kaggle/blob/master/2-dog-breeds.ipynb) - Classifying dog breeds into clusters from the American Kennel Club
 
 ## Usage
 
@@ -26,4 +27,3 @@ Re-create my best submission with
 ```bash
 python project.py
 ```
-
