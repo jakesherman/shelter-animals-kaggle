@@ -16,7 +16,7 @@ import wikipedia
 
 """
 ================================================================================
-    CATEGORIZING DOG BREEDS INTO THE AMERICAN KENNEL SOCIETY TAXONOMY
+    CATEGORIZING DOG BREEDS INTO THE AMERICAN KENNEL CLUB TAXONOMY
 ================================================================================
 """
 
@@ -40,7 +40,7 @@ def identify_classification(breed, page_content):
 def create_breed_to_classification_dict():
     """
     Create a dictionary that maps dog breeds to their taxonomic classification
-    by the American Kennel Society via the Wikipedia API.
+    by the American Kennel Club via the Wikipedia API.
     """
     akc_breeds = wikipedia.page(
         'List of dog breeds recognized by the American Kennel Club')
@@ -76,7 +76,8 @@ def map_breeds_to_taxonomy(train, test):
     Use fuzzy string matching (~ Levenshtein distance) to match dog breeds from
     the AKC list of dog breeds Wikipedia page to the Breed variable in the 
     training and test sets. Output a dictionary of training/test breed to the 
-    set 
+    set of AKC groups for that breed (as many of the dogs are mixed breed, this 
+    set may have more than one value).
     """
     if os.path.isfile('dogbreeds.json'):
         with open('dogbreeds.json') as data_file:    
@@ -93,9 +94,6 @@ def map_breeds_to_taxonomy(train, test):
         # separated by a /, since this often distinguishes between 2 diff breeds
         train_breed_clean = train_breed.replace(' Mix', '')
         train_breed_split = train_breed_clean.split('/')
-        
-        # For each breed, assign the class to the mapped breed/classification w/
-        # the smallest Levenshtein distance between breed names using fuzzywuzzy
         for partial_breed in train_breed_split:
             high_score, current_class = 0, None
             for classified_breed in classifications.keys():
@@ -112,7 +110,7 @@ def map_breeds_to_taxonomy(train, test):
                     classes.append(subclass)
                 classes = [c for c in classes if c != myclass]
         breed_classifications[train_breed] = set(classes)
-    dogbreeds = dict((k, list(v)) for k, v in breed_classifications.items())
+    dogbreeds = dict([(k, list(v)) for k, v in breed_classifications.items()])
     with open('dogbreeds.json', 'w') as f:
          json.dump(dogbreeds, f)
     return map_breeds_to_taxonomy(train, test)
@@ -166,9 +164,10 @@ def create_age_in_years(data):
             duration, unit = age.split(' ')
             results.append(float(duration) / units.get(unit, 1.0))
     impute = np.mean([age for age in results if age != 'NA'])
+    ages = [age if age != 'NA' else impute for age in results]
     return (data
-        .assign(Age = [age if age != 'NA' else impute for age in results])
-        .drop(['AgeuponOutcome'], axis = 1))
+            .assign(Age = preprocessing.scale(ages))
+            .drop(['AgeuponOutcome'], axis = 1))
 
 
 def time_of_day(hour):
@@ -267,7 +266,7 @@ def extract_unique_colors(train):
                 colors[subcolor] += 1
             except:
                 colors[subcolor] = 1
-    return set([k for k, v in colors.items() if v >= 30])
+    return set([color for color, count in colors.items() if count >= 30])
 
 
 def create_color_variables(data, colors):
@@ -292,13 +291,50 @@ def create_color_variables(data, colors):
     return pd.concat([data, colors_df], axis = 1).drop(['Color'], axis = 1)
 
 
+def create_has_name(data):
+    data['HasName'] = np.where(data['Name'].isnull(), 0, 1)
+    return data.drop(['Name'], axis = 1)
+
+
+def transform_animal_type(data):
+    data['AnimalType'] = np.where(data['AnimalType'] == 'Cat', 1, 0)
+    return data
+
+
+def one_hot_encode(DataFrame, column):
+    """
+    Replace [column] in [DataFrame] with binary columns for each distinct value
+    in [column], each with the name [column]_[value].
+    """
+    to_col = dict([(n, i) for i, n in enumerate(list(
+        DataFrame[column].unique()))])
+    mat = np.zeros((len(DataFrame.index), len(to_col)))
+    for i, val in enumerate(list(DataFrame[column])):
+        mat[i, to_col[val]] += 1
+    columns = [column + '_' + str(x[1]) for x in sorted(
+            [(v, k) for k, v in to_col.items()])]
+    dfs = [DataFrame, pd.DataFrame(mat.astype(int), columns = columns)]
+    return pd.concat(dfs, axis = 1).drop([column], axis = 1)
+
+
+def do_one_hot_encoding(data):
+    columns = list(data)[1:7]
+    for column in columns:
+        data = data.pipe(one_hot_encode, column = column)
+    return data
+
+
 def feature_engineering(data, dogbreeds, colors):
     return (data
          .pipe(create_sex_variables)
          .pipe(create_date_variables)
          .pipe(create_age_in_years)
          .pipe(create_breed_variables, dogbreeds = dogbreeds)
-         .pipe(create_color_variables, colors = colors))
+         .pipe(create_color_variables, colors = colors)
+         .pipe(create_has_name)
+         .pipe(transform_animal_type)
+         .pipe(do_one_hot_encoding)
+         .pipe(np.array))
 
 
 def main():
@@ -315,6 +351,8 @@ def main():
     colors = extract_unique_colors(train)
     test = feature_engineering(test, dogbreeds, colors)
     train = feature_engineering(test, dogbreeds, colors)
+
+    # Modeling
 
 
 if __name__ == '__main__':
