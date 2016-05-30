@@ -163,7 +163,7 @@ def create_age_in_years(data):
         else:
             duration, unit = age.split(' ')
             results.append(float(duration) / units.get(unit, 1.0))
-    impute = np.mean([age for age in results if age != 'NA'])
+    impute = np.median([age for age in results if age != 'NA'])
     ages = [age if age != 'NA' else impute for age in results]
     return (data
             .assign(Age = preprocessing.scale(ages))
