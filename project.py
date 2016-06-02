@@ -3,6 +3,8 @@ project.py - run this to re-create my best submission to the Shelter Animals
 Kaggle competition. See: github.com/jakesherman/shelter-animals-kaggle
 """
 
+import cPickle
+import datetime
 from fuzzywuzzy import fuzz
 import json
 import numpy as np
@@ -24,7 +26,7 @@ import wikipedia
 def identify_classification(breed, page_content):
     """
     Identifies the classification for a breed in the AKC taxonomy from the 
-    content of the Wikipedia page 'List of dog breeds recognized by the 
+    content of the Wikipedia page: 'List of dog breeds recognized by the 
     American Kennel Club'.
     """
     start, i = page_content.index(breed) + len(breed) + 1, 1
@@ -40,7 +42,7 @@ def identify_classification(breed, page_content):
 def create_breed_to_classification_dict():
     """
     Create a dictionary that maps dog breeds to their taxonomic classification
-    by the American Kennel Club via the Wikipedia API.
+    by the American Kennel Club via the Wikipedia API (wikipedia package).
     """
     akc_breeds = wikipedia.page(
         'List of dog breeds recognized by the American Kennel Club')
@@ -73,10 +75,10 @@ def create_breed_to_classification_dict():
 
 def map_breeds_to_taxonomy(train, test):
     """
-    Use fuzzy string matching (~ Levenshtein distance) to match dog breeds from
+    Use fuzzy string matching (Levenshtein distance) to match dog breeds from
     the AKC list of dog breeds Wikipedia page to the Breed variable in the 
     training and test sets. Output a dictionary of training/test breed to the 
-    set of AKC groups for that breed (as many of the dogs are mixed breed, this 
+    set of AKC groups for that breed (b/c many of the dogs are mixed breed, this 
     set may have more than one value).
     """
     if os.path.isfile('dogbreeds.json'):
@@ -154,6 +156,10 @@ def create_sex_variables(data):
 
 
 def create_age_in_years(data):
+    """
+    Transform the AgeuponOutcome variable into a numeric, impute the very small
+    number of missing values with the median.
+    """
     ages = list(data['AgeuponOutcome'].fillna('NA'))
     results = []
     units = {'days': 365.0, 'weeks': 52.0, 'months': 12.0}
@@ -193,18 +199,18 @@ def create_date_variables(data):
         .drop(['DateTime'], axis = 1))
 
 
-def assign_dog_breeds(data, dogbreeds):
+def assign_dog_breeds(data, breed_taxonomy_map):
     """
     Create binary indicator variables for the AKC dog classifications.
     """
     unique_breeds = set(
-        [breed for breeds in dogbreeds.values() for breed in breeds])
+        [breed for breeds in breed_taxonomy_map.values() for breed in breeds])
     breed_to_position = dict([(x, i) for i, x in enumerate(unique_breeds)])
     vectors = []
     for breed, animal in data[['Breed', 'AnimalType']].values.tolist():
         vector = [0] * len(unique_breeds)
         if animal == 'Dog':
-            breed = dogbreeds[breed]
+            breed = breed_taxonomy_map[breed]
             for subbreed in breed:
                 vector[breed_to_position[subbreed]] += 1
         vectors.append(vector)
@@ -214,18 +220,9 @@ def assign_dog_breeds(data, dogbreeds):
     return pd.concat([data, dogbreeds_df], axis = 1)
 
 
-def create_mix(data):
-    """
-    For both cats and dogs, is the animal a mix of multiple breeds? We can 
-    determine this both by searching for the string 'Mix' in the name, AND by 
-    looking to see if dogs have been classified into 2 or more AKC groups.
-    """
-    dogbreedcols = [col for col in list(data) if 'AKC_Class_' in col]
-    data['NumDogBreeds'] = data[dogbreedcols].sum(axis = 1)
-    data['Mix'] = data['Breed'].map(lambda x: x.find('Mix'))
-    data['Mix'] = np.where(data['Mix'] > 0, 1, 
-        np.where(data['NumDogBreeds'] > 1, 1, 0))
-    return data
+def create_hair_length_variable(data, hairlen):
+    return np.where(data['Breed'].str.contains(hairlen, case = False), 
+        np.where(data['AnimalType'] == 'Cat', 1, 0), 0)
 
 
 def create_hair_length(data):
@@ -233,27 +230,79 @@ def create_hair_length(data):
     For cats, creates binary indicator variables for whether the cat has long,
     medium, or short hair.
     """
-    data['ShortHair'] = np.where(data['Breed'].map(
-        lambda x: x.find('Short')) > 1, np.where(
-        data['AnimalType'] == 'Cat', 1, 0), 0)
-    data['MediumHair'] = np.where(data['Breed'].map(
-        lambda x: x.find('Medium')) > 1, np.where(
-        data['AnimalType'] == 'Cat', 1, 0), 0)
-    data['LongHair'] = np.where(data['Breed'].map(
-        lambda x: x.find('Long')) > 1, np.where(
-        data['AnimalType'] == 'Cat', 1, 0), 0)
+    data['ShortHair'] = create_hair_length_variable(data, 'Short')
+    data['MediumHair'] = create_hair_length_variable(data, 'Medium')
+    data['LongHair'] = create_hair_length_variable(data, 'Long')
     return data
 
 
-def create_breed_variables(data, dogbreeds):
+def identify_common_breeds(breeds, threshold = 30):
+    """
+    Identify the most common breeds in the training set for cats and dogs in 
+    order to prevent overfitting from including very small breeds.
+    """
+    breed_counts = {}
+    for breed in breeds:
+        breed = breed.replace(' Mix', '').replace(' mix', '').split('/')
+        for subbreed in breed:
+            try:
+                breed_counts[subbreed] += 1
+            except:
+                breed_counts[subbreed] = 1
+    return set([k for k, v in breed_counts.items() if v >= threshold])
+
+
+def create_specific_breeds(data, dog_breeds, cat_breeds):
+    """
+    Create binary features for the most common dog and cat breeds.
+    """
+    vectors = []
+    common_breeds = list(dog_breeds) + list(cat_breeds)
+    to_position = dict([(c, i) for i, c in enumerate(common_breeds)])
+    for breed in list(data['Breed']):
+        vector = [0] * len(common_breeds)
+        breed = breed.replace(' Mix', '').replace(' mix', '').split('/')
+        for subbreed in breed:
+            try:
+                vector[to_position[subbreed]] += 1
+            except:
+                pass
+        vectors.append(vector)
+    columns = ['SpecificBreed_' + x[1].replace(' ', '') for x in sorted(
+            [(v, k) for k, v in to_position.items()])]
+    breeds_df = pd.DataFrame(vectors, columns = columns)
+    return pd.concat([data, breeds_df], axis = 1)
+
+
+def create_mix(data):
+    """
+    For both cats and dogs, is the animal a mix of multiple breeds? We can 
+    determine this both by searching for the string 'Mix' in the name, AND by 
+    looking to see if dogs have been classified into 2 or more AKC groups.
+    """
+    akc_class_cols = [col for col in list(data) if 'AKC_Class_' in col]
+    specific_breed_cols = [col for col in list(data) if 'SpecificBreed_' in col]
+    data['NumAKCClassses'] = data[akc_class_cols].sum(axis = 1)
+    data['NumSpecificBreeds'] = data[specific_breed_cols].sum(axis = 1)
+    data['Mix'] = np.where(data['NumAKCClassses'] > 1, 1, 0)
+    data['Mix'] = np.where(data['NumSpecificBreeds'] > 1, 1, data['Mix'])
+    data['Mix'] = np.where(data['Breed'].str.contains('Mix', case = False), 1, 
+        data['Mix'])
+    return data.drop(['NumAKCClassses', 'NumSpecificBreeds'], axis = 1)
+
+
+def create_breed_variables(data, breed_taxonomy_map, common_dog_breeds, 
+    common_cat_breeds):
     return (data
-        .pipe(assign_dog_breeds, dogbreeds = dogbreeds)
-        .pipe(create_mix)
+        .pipe(assign_dog_breeds, breed_taxonomy_map = breed_taxonomy_map)
         .pipe(create_hair_length)
+        .pipe(create_specific_breeds, dog_breeds = common_dog_breeds, 
+            cat_breeds = common_cat_breeds)
+        .pipe(create_mix)
         .drop(['Breed'], axis = 1))
 
 
-def extract_unique_colors(train):
+def extract_unique_colors(train, threshold = 30):
     """
     Extract a set of unique colors from the training set for colors with 
     30 or more animals.
@@ -266,7 +315,7 @@ def extract_unique_colors(train):
                 colors[subcolor] += 1
             except:
                 colors[subcolor] = 1
-    return set([color for color, count in colors.items() if count >= 30])
+    return set([color for color, count in colors.items() if count >= threshold])
 
 
 def create_color_variables(data, colors):
@@ -286,7 +335,7 @@ def create_color_variables(data, colors):
                 pass
         vectors.append(vector)
     columns = ['Color_' + x[1] for x in sorted(
-            [(v, k) for k, v in to_position.items()])]
+        [(v, k) for k, v in to_position.items()])]
     colors_df = pd.DataFrame(vectors, columns = columns)
     return pd.concat([data, colors_df], axis = 1).drop(['Color'], axis = 1)
 
@@ -303,8 +352,8 @@ def transform_animal_type(data):
 
 def one_hot_encode(DataFrame, column):
     """
-    Replace [column] in [DataFrame] with binary columns for each distinct value
-    in [column], each with the name [column]_[value].
+    Replace [column] in [DataFrame] with binary indicator columns for each 
+    distinct value in [column], each with the name [column]_[value].
     """
     to_col = dict([(n, i) for i, n in enumerate(list(
         DataFrame[column].unique()))])
@@ -312,29 +361,36 @@ def one_hot_encode(DataFrame, column):
     for i, val in enumerate(list(DataFrame[column])):
         mat[i, to_col[val]] += 1
     columns = [column + '_' + str(x[1]) for x in sorted(
-            [(v, k) for k, v in to_col.items()])]
+        [(v, k) for k, v in to_col.items()])]
     dfs = [DataFrame, pd.DataFrame(mat.astype(int), columns = columns)]
     return pd.concat(dfs, axis = 1).drop([column], axis = 1)
 
 
 def do_one_hot_encoding(data):
-    columns = list(data)[1:7]
-    for column in columns:
+    for column in list(data)[1:7]:
         data = data.pipe(one_hot_encode, column = column)
     return data
 
 
-def feature_engineering(data, dogbreeds, colors):
+def feature_engineering(data, breed_taxonomy_map, colors, common_dog_breeds,
+    common_cat_breeds):
     return (data
-         .pipe(create_sex_variables)
-         .pipe(create_date_variables)
-         .pipe(create_age_in_years)
-         .pipe(create_breed_variables, dogbreeds = dogbreeds)
-         .pipe(create_color_variables, colors = colors)
-         .pipe(create_has_name)
-         .pipe(transform_animal_type)
-         .pipe(do_one_hot_encoding)
-         .pipe(np.array))
+        .pipe(create_sex_variables)
+        .pipe(create_date_variables)
+        .pipe(create_age_in_years)
+        .pipe(create_breed_variables, breed_taxonomy_map = breed_taxonomy_map,
+            common_dog_breeds = common_dog_breeds, 
+            common_cat_breeds = common_cat_breeds)
+        .pipe(create_color_variables, colors = colors)
+        .pipe(create_has_name)
+        .pipe(transform_animal_type)
+        .pipe(do_one_hot_encoding))
+
+
+def write_pickle(obj, file_name):
+    f = open(file_name, 'wb')
+    cPickle.dump(obj, f, protocol = 2)
+    f.close()
 
 
 def main():
@@ -344,15 +400,30 @@ def main():
     test = pd.read_csv('data/test.csv')
 
     # Classify the breeds in the train/test set into the AKC taxonomy
-    dogbreeds = map_breeds_to_taxonomy(train, test)
+    breed_taxonomy_map = map_breeds_to_taxonomy(train, test)
+
+    # Get the most common specific dog/cat breeds from the training set
+    common_dog_breeds = identify_common_breeds(
+        list(train[train['AnimalType'] == 'Dog']['Breed']))
+    common_cat_breeds = identify_common_breeds(
+        list(train[train['AnimalType'] == 'Cat']['Breed']))
+
+    # Get the most common colors from the training set
+    colors = extract_unique_colors(train)
 
     # Feature engineering
     train, test, outcomes, outcomes_le = create_outcomes_drop_cols(train, test)
-    colors = extract_unique_colors(train)
-    test = feature_engineering(test, dogbreeds, colors)
-    train = feature_engineering(test, dogbreeds, colors)
+    train = feature_engineering(train, breed_taxonomy_map, colors, 
+        common_dog_breeds, common_cat_breeds)
+    test = feature_engineering(test, breed_taxonomy_map, colors, 
+        common_dog_breeds, common_cat_breeds)
 
-    # Modeling
+    # FOR TESTING PURPOSES
+    write_pickle(train, 'data/train.engineered')
+    write_pickle(test, 'data/test.engineered')
+    write_pickle(outcomes, 'data/outcomes.engineered')
+    write_pickle(outcomes_le, 'data/outcomes_le.engineered')
+    print 'All set...'
 
 
 if __name__ == '__main__':
