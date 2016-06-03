@@ -236,7 +236,7 @@ def create_hair_length(data):
     return data
 
 
-def identify_common_breeds(breeds, threshold = 30):
+def identify_common_breeds(breeds, threshold = 50):
     """
     Identify the most common breeds in the training set for cats and dogs in 
     order to prevent overfitting from including very small breeds.
@@ -302,7 +302,7 @@ def create_breed_variables(data, breed_taxonomy_map, common_dog_breeds,
         .drop(['Breed'], axis = 1))
 
 
-def extract_unique_colors(train, threshold = 30):
+def extract_unique_colors(train, threshold = 50):
     """
     Extract a set of unique colors from the training set for colors with 
     30 or more animals.
@@ -355,8 +355,8 @@ def one_hot_encode(DataFrame, column):
     Replace [column] in [DataFrame] with binary indicator columns for each 
     distinct value in [column], each with the name [column]_[value].
     """
-    to_col = dict([(n, i) for i, n in enumerate(list(
-        DataFrame[column].unique()))])
+    to_col = dict([(n, i) for i, n in enumerate(
+        sorted(list(DataFrame[column].unique())))])
     mat = np.zeros((len(DataFrame.index), len(to_col)))
     for i, val in enumerate(list(DataFrame[column])):
         mat[i, to_col[val]] += 1
