@@ -9,7 +9,9 @@
 ## Scratchwork
 
 * [`1-exploring.ipynb`](https://github.com/jakesherman/shelter-animals-kaggle/blob/master/1-exploring.ipynb) - Exploratory analysis  
-* [`2-dog-breeds.ipynb`](https://github.com/jakesherman/shelter-animals-kaggle/blob/master/2-dog-breeds.ipynb) - Classifying dog breeds into clusters from the American Kennel Club
+* [`2-dog-breeds.ipynb`](https://github.com/jakesherman/shelter-animals-kaggle/blob/master/2-dog-breeds.ipynb) - Classifying dog breeds into clusters from the [American Kennel Club](http://www.akc.org/dog-breeds/)  
+* [`3-feature-engineering.ipynb`](https://github.com/jakesherman/shelter-animals-kaggle/blob/master/3-feature-engineering.ipynb) - Feature engineering  
+* [`4-modeling.ipynb`](https://github.com/jakesherman/shelter-animals-kaggle/blob/master/4-modeling.ipynb) - Model building and selection, making the submission
 
 ## Usage
 
